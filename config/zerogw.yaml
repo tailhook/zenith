@@ -4,8 +4,20 @@ Server:
       port: 8000
 
 Routing:
-  static:
-    enabled: yes
-    root: ./public
-    restrict-root: no
+  routing: !Prefix
+  routing-by: !Path
+  map:
+    /*:
+      zmq-forward:
+        enabled: yes
+        socket: !zmq.Req
+        - !zmq.Bind ipc://./run/http.sock
+        contents:
+        - !Uri
+    /js/*: &static
+      static:
+        enabled: yes
+        root: ./public
+        restrict-root: no
+    /css/*: *static
 
