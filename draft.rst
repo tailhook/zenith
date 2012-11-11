@@ -206,3 +206,12 @@ World!``. You can also check some static file like
 in that file, to verify it's served correctly.
 
 
+Version Control Everything
+==========================
+
+If you haven't put your code into version control, it's time to run ``git
+init``. We aren't going to annoy you each time, but commiting at least after
+each step of the tutorial is going to save you a lot of time. It will also let
+you remember how to implement the feature X in the future when you'll write
+some real project.
+
