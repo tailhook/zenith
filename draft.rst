@@ -42,8 +42,14 @@ First we introduce the folder structure, and empty files::
     templates
     config
       zerogw.yaml
+    run
+
+The ``run`` folder is there for temporary files created at server runtime
+(It's not called ``tmp`` because I'm using latter for my own temporary files.
+Nevermind, it's just personal preference)
 
 Everything should be easy so far. The files will be populated step by step.
+
 
 
 Python Boilerplate
@@ -84,6 +90,9 @@ We'll start with simple hello world application. Let's fill in
     if __name__ == '__main__':
         hub = Hub()
         hub.run(main)
+
+If you are not familiar with python3, the ``__main__.py`` is the file that's
+got run when package (``python -m zenith``) is executed.
 
 Here the ``web.page`` denotes a page visible to the user. ``index`` is a
 special page, which is dispayed for the root of the site.
@@ -214,4 +223,114 @@ init``. We aren't going to annoy you each time, but commiting at least after
 each step of the tutorial is going to save you a lot of time. It will also let
 you remember how to implement the feature X in the future when you'll write
 some real project.
+
+
+Jinja Templates
+===============
+
+We aren't going to write all the HTML in the python code. So let's do some
+jinja templating. Let's start with base template ``templates/base.html``::
+
+    <!DOCTYPE html>
+    <head>
+        <title>{% block title %}Zenith{% endblock %}</title>
+        <link rel="stylesheet" href="/css/main.css">
+    </head>
+    <body>
+        <h1>{{ self.title() }}</h1>
+        {% block body %}{% endblock %}
+        <footer>Zenith (c) Your Name Here</footer>
+    </body>
+
+And the start page of our project ``templates/index.html::
+
+    {% extends file="base.html"%}
+    {% block title %}Welcome to Zenith!{% endblock %}
+    {% block body %}
+    <ul>
+        <li><a href="/login">Login</a></li>
+        <li><a href="/register">Login</a></li>
+        <li><a href="/about">about</a></li>
+    </ul>
+    {% endblock body %}
+
+Now let's tie the pieces together. The ``zenith/__main__.py`` should now look
+like the following (highlighted lines are new):
+
+.. code-block:: python
+   :emphasize-lines: 1,5,10,13,16,18,29-31
+   :linenos:
+
+    import jinja2
+    from zorro import Hub
+    from zorro import zmq
+    from zorro import web
+    from zorro.di import DependencyInjector, has_dependencies, dependency
+
+    from .util import template
+
+
+    @has_dependencies
+    class About(web.Resource):
+
+        jinja = dependency(jinja2.Environment, 'jinja')
+
+        @web.page
+        @template('index.html')
+        def index(self):
+            return {}
+
+
+    class Request(web.Request):
+
+        def __init__(self, uri):
+            self.uri = uri
+
+
+    def main():
+
+        inj = DependencyInjector()
+        inj['jinja'] = jinja2.Environment(
+            loader=jinja2.FileSystemLoader('./templates'))
+
+        site = web.Site(
+            request_class=Request,
+            resources=[
+                inj.inject(About()),
+            ])
+        sock = zmq.rep_socket(site)
+        sock.dict_configure({'connect': 'ipc://./run/http.sock'})
+
+
+    if __name__ == '__main__':
+        hub = Hub()
+        hub.run(main)
+
+There are two things changed here. All over the place we've added dependency
+injection (DI). It works by declaring a dependency for the class (line 10 and
+13), and by calling ``inject`` method (line 36) on a special object called
+DependencyInjector. The latter holds a mapping of components which can be
+declared as dependencies is any class. We'll show how dependencies got
+propagated later on.
+
+In this example it's unclear why we use DI instead of just passing the object
+to the constructor, but in bigger application this saves a lot of code.
+
+The ``template`` decorator renders jinja template, here is how it looks like
+in ``zenith/util.py``::
+
+    from zorro import web
+
+    def template(name):
+        def decorator(fun):
+            @web.postprocessor(fun)
+            def wrapper(self, resolver, data):
+                return ('200 OK',
+                        'Content-Type\0text/html; charset=utf-8\0',
+                        self.jinja.get_template(name).render(data))
+            return wrapper
+        return decorator
+
+Now you can restart the python process and see nice web page instead of plain
+``Hello World!``.
 

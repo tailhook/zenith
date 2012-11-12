@@ -1,14 +1,12 @@
-from zorro.web import decorate
+from zorro import web
+
 
 def template(name):
     def decorator(fun):
-        @decorates(fun)
-        def wrapper(self, *args, **kw):
-            result = fun(self, *args, **kw)
-            assert isinstance(result, dict), \
-                "Function {} must return dict".format(fun)
+        @web.postprocessor(fun)
+        def wrapper(self, resolver, data):
             return ('200 OK',
                     'Content-Type\0text/html; charset=utf-8\0',
-                    self.jinja.get_template(name).render(result))
+                    self.jinja.get_template(name).render(data))
         return wrapper
     return decorator

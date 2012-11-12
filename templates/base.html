@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<head>
+    <title>{% block title %}Zenith{% endblock %}</title>
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <h1>{{ self.title() }}</h1>
+    {% block body %}{% endblock %}
+    <footer>Zenith (c) Your Name Here</footer>
+</body>
