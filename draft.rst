@@ -334,3 +334,40 @@ in ``zenith/util.py``::
 Now you can restart the python process and see nice web page instead of plain
 ``Hello World!``.
 
+To make project real, we need an ``/about`` page. Add the following to
+``About`` class in ``zenith/__main__.py``::
+
+    import zorro
+    import sys
+
+    class About(web.Resource):
+    ...
+        @web.page
+        @template('about.html')
+        def about(self):
+            return {
+                'py_version': sys.version,
+                'zorro_version': zorro.__version__,
+                }
+
+The ``templates/about.html`` might look like the following::
+
+    {% extends "base.html"%}
+    {% block title %}Zenith Tutorial!{% endblock %}
+    {% block body %}
+    Powered by:
+    <ul>
+        <li>Python {{ py_version }}</li>
+        <li>Zorro {{ zorro_version }}</li>
+    </ul>
+    {% endblock body %}
+
+After restarting python you can point your browser to
+``http://localhost:8000/about`` and check the result.
+
+Now, you know how to add pages and pass variables into template. You are probably wondering when you'll start implementing a Game. Shortly, but before we should implement ...
+
+Auth & Auth
+===========
+
+

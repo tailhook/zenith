@@ -1,4 +1,7 @@
+import sys
+
 import jinja2
+import zorro
 from zorro import Hub
 from zorro import zmq
 from zorro import web
@@ -16,6 +19,14 @@ class About(web.Resource):
     @template('index.html')
     def index(self):
         return {}
+
+    @web.page
+    @template('about.html')
+    def about(self):
+        return {
+            'py_version': sys.version,
+            'zorro_version': zorro.__version__,
+            }
 
 
 class Request(web.Request):
