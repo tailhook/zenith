@@ -6,6 +6,7 @@ from zorro import Hub
 from zorro import zmq
 from zorro import web
 from zorro.di import DependencyInjector, has_dependencies, dependency
+from zorro import redis
 
 from .util import template
 from .auth import Auth
@@ -43,6 +44,7 @@ def main():
     inj = DependencyInjector()
     inj['jinja'] = jinja2.Environment(
         loader=jinja2.FileSystemLoader('./templates'))
+    inj['redis'] = redis.Redis(host='127.0.0.1', port=6379)
 
     site = web.Site(
         request_class=Request,

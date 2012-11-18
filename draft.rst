@@ -398,7 +398,7 @@ We need a separate resource for ``/login`` and ``/register`` pages. So let's cre
         password = wtforms.PasswordField('Password',
             validators=[val.Required()])
         cpassword = wtforms.PasswordField('Confirm Password',
-            validators=[val.Required()])
+            validators=[val.Required(), val.EqualTo('password')])
 
 
     @has_dependencies
@@ -410,13 +410,13 @@ We need a separate resource for ``/login`` and ``/register`` pages. So let's cre
         @form(LoginForm)
         @web.page
         def login(self, login, password):
-            return web.CompletionRedirect('loginok')
+            raise web.CompletionRedirect('loginok')
 
         @template('register.html')
         @form(RegisterForm)
         @web.page
         def register(self, name, email, password, cpassword):
-            return web.CompletionRedirect('registerok')
+            raise web.CompletionRedirect('registerok')
 
 To make it basically work, we need to implement a ``form`` decorator::
 
@@ -544,4 +544,179 @@ hack from ``login.html`` and ``register.html`` and check whether ``POST`` forms
 work.
 
 
+Adding Redis
+============
+
+We want to keep users in redis database. Note that redis must be configured
+well to run persistently. It's not that important for the tutorial, so we
+assume you have redis configured and running.
+
+First we put redis connection into dependency injector, so any class can use
+it as dependency (``zenith/__main__.py``)::
+
+    from zorro import redis
+
+    def main():
+        ...
+        inj['redis'] = redis.Redis(host='127.0.0.1', port=6379)
+        ...
+
+As you may have different applications residing on your local development
+redis, we will use ``z:`` prefix for all our data. Usually data scheme is
+aggreed on before starting to code, but we will describe it step by step to
+make tutorial a bit easier.
+
+We start with login form. To keep data structures compact we have users
+denoted by integer user id or ``uid``. At ``z:names`` we  keep a mapping
+(redis hash) of the name and email to uid. Each user has two hash entries one
+for name and one for email, so it can be logged in both by name and by email.
+At ``z:user:<uid>:password`` we store a salted and hashed password. That's all
+we need so far. Let's update ``LoginForm`` to check for password::
+
+    @has_dependencies
+    class LoginForm(wtforms.Form):
+        login = wtforms.TextField('Name or Email',
+            validators=[val.Required()])
+        password = wtforms.PasswordField('Password',
+            validators=[val.Required()])
+
+        redis = dependency(Redis, 'redis')
+
+        def validate_password(self, field):
+            uid = self.redis.execute('HGET', 'z:names', self.login.data)
+            if uid is None:
+                raise ValueError("Name or password is wrong")
+            uid = int(uid)
+            pw = self.redis.execute('GET', 'z:user:{}:password'.format(uid))
+            if pw is None:
+                raise ValueError("Name or password is wrong")
+            assert pw[0] == b'A'[0], 'Algorithm for storing password is wrong'
+            assert len(pw) == 65, 'Wrong password length'
+            hash = pw[1:33]
+            salt = pw[33:]
+            if hashlib.sha256(field.data.encode('utf-8') + salt).digest() != hash:
+                raise ValueError("Name or password is wrong")
+
+To make the validation work, we need to propagate dependency injection to the
+form. It should be done in our ``form`` decorator:
+
+.. code-block:: python
+   :emphasize-lines: 8
+
+    from zorro.di import di
+
+    def form(form_class):
+        def decorator(fun):
+            @web.decorator(fun)
+            def form_processor(self, resolver, meth, *args, **kw):
+                form = form_class(resolver.request.legacy_arguments)
+                di(self).inject(form)
+                if kw and form.validate():
+                    return meth(**form.data)
+                else:
+                    return dict(form=form)
+            return form_processor
+        return decorator
+
+The ``di`` function extracts dependency injector from the object, so the
+``di(self).inject`` mantra is a common pattern to propagate dependencies to
+other objects. Note the object that we extract dependency injector from
+(``Auth`` instance in this case), doesn't need to have every dependency which
+is propagated though it. Actually in most cases ``di(self)`` returns the exact
+instance of ``DependencyInjector`` that we created in ``__main__.py``.
+
+Now in any real project it's time to write few unit tests for the password
+checking. However, for the sake of keeping tutorial shorter we do not include
+unittests here. So let's implement user registration to test our code. First
+check login and email for duplicates::
+
+    @has_dependencies
+    class RegisterForm(wtforms.Form):
+        # ... fields
+        redis = dependency(Redis, 'redis')
+
+        def validate_name(self, field):
+            uid = self.redis.execute('HGET', 'z:names', field.data)
+            if uid is not None:
+                raise ValueError("Login exists")
+
+        def validate_email(self, field):
+            uid = self.redis.execute('HGET', 'z:names', field.data)
+            if uid is not None:
+                raise ValueError("This email is already registered")
+
+Next, create a counter ``z:last_uid`` which is incremented on each
+registration to make user id. Then carefully update ``z:names``. Here is the
+code::
+
+
+    class Auth(web.Resource):
+        redis = dependency(Redis, 'redis')
+
+        # ...
+
+        @template('register.html')
+        @form(RegisterForm)
+        @web.page
+        def register(self, name, email, password, cpassword):
+            uid = self.redis.execute("INCR", 'z:last_uid')
+            ok = self.redis.execute("HSETNX", 'z:names', name, uid)
+            if not ok:
+                raise FormError("name", "Login exists")
+            ok = self.redis.execute("HSETNX", 'z:names', email, uid)
+            if not ok:
+                self.redis.execute("HDEL", 'z:names', name)
+                raise FormError("email", "This email is already registered")
+            salt = os.urandom(32)
+            hash = hashlib.sha256(password.encode('utf-8') + salt).digest()
+            pw = b'A' + hash + salt
+            self.redis.execute('SET', 'z:user:{}:password'.format(uid), pw)
+            raise web.CompletionRedirect('/registerok')
+
+This is enough to test whether everything works. The only thing is left is
+``FormError``. It's there, because it's possible that between validating the
+form and setting ``z:names`` other user with the same name is registered. The
+only way to check this is to use ``HSETNX`` instead ``HSET`` and check the
+result. Note also, that if email is conflicted we clear the name from the
+hash (so somebody can still use the name), but we don't rollback ``uid``. It's
+not easy to explain all the complexity of solving race conditions in the
+tutorial, but it's clear that spurious increments of ``last_uid`` don't hurt.
+
+The ``FormError`` exception should be catched in our ``form`` decorator:
+
+.. code-block:: python
+    :emphasize-lines: 1-5,14,16-18
+
+    class FormError(Exception):
+
+        def __init__(self, field, message):
+            self.field = field
+            self.message = message
+
+    def form(form_class):
+        def decorator(fun):
+            @web.decorator(fun)
+            def form_processor(self, resolver, meth, *args, **kw):
+                form = form_class(resolver.request.legacy_arguments)
+                di(self).inject(form)
+                if kw and form.validate():
+                    try:
+                        return meth(**form.data)
+                    except FormError as e:
+                        form[e.field].errors.append(e.message)
+                        return dict(form=form)
+                else:
+                    return dict(form=form)
+            return form_processor
+        return decorator
+
+As you can see, we just add a message to the error list for the apropriate
+field. If you are curious how to reproduce the race condition, just put
+``zorro.sleep(10)`` at the start of the ``register`` method.
+
+Now it's time restart the server and go to ``http://localhost:8000/register``
+and ``http://localhost:8000/login`` and verify that everything works.
+Remember, you'll still get 404 on successful login/registration, but by
+redirect to ``/loginok`` or ``/registerok`` you can understand that everything
+works well.
 
