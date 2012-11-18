@@ -451,7 +451,7 @@ It's a bit complex, so we'll try to explain most lines:
 Now we need to implement some rendering for the forms. We'll do this with a
 macro. Let's put the following into ``templates/form.html``:
 
-    {% macro render_form(form, method='GET', submit_text="Submit") %}
+    {% macro render_form(form, method='POST', submit_text="Submit") %}
     <form method="{{ method }}">
     <ul>
     {% for field in form %}
@@ -462,20 +462,20 @@ macro. Let's put the following into ``templates/form.html``:
     </form>
     {% endmacro %}
 
-To see some result immediately we use ``GET`` method, of course it's wrong for
-the real work, but we'll fix it shortly. Let's design ``login.html``:
+That was easy. Let's design ``login.html``:
 
     {% extends "base.html"%}
     {% from "form.html" import render_form %}
     {% block title %}Sign In{% endblock %}
     {% block body %}
-    {{ render_form(form) }}
+    {{ render_form(form, method="GET") }}
     {% endblock body %}
 
-We give ``register.html`` as an exercise to the reader.
+To see some result immediately we use ``GET`` method, of course it's wrong for
+the real work, but we'll fix it shortly.  We give ``register.html`` as an exercise to the reader.
 
-And to tie all pieces together, let's put ``Auth`` resource into the list of
-resources the site is going to invoke (``zenith/__main__.py``). Example::
+Finally to tie all pieces together, let's put ``Auth`` resource into the list
+of resources the site is going to invoke (``zenith/__main__.py``). Example::
 
     from .auth import Auth
     ...
@@ -485,4 +485,55 @@ resources the site is going to invoke (``zenith/__main__.py``). Example::
                 inj.inject(About()),
                 inj.inject(Auth()),
             ])
+
+After restarting server we can now go to ``http://localhost:8000/login`` and
+see the form. After filling some data into the form you should be redirected
+to ``http://localhost:8000/loginok`` and see ``404 Not Found`` there. It's
+normal we'll fix it in the following sections.
+
+
+POST Requests
+=============
+
+Let's take a look at our written request class again::
+
+    class Request(web.Request):
+
+        def __init__(self, uri):
+            self.uri = uri
+
+It only holds ``URI`` of the request, but to process form with ``method=POST`` we also need ``Content-Type`` header and body of the post request. Let's configure zerogw to send those fields to us. Fix the ``config/zerogw.yaml`` so that our default route looks like (highlighted lines are new):
+
+.. code-block:: yaml
+   :emphasize-lines: 7,8
+
+    zmq-forward:
+      enabled: yes
+      socket: !zmq.Req
+      - !zmq.Bind ipc://./run/http.sock
+      contents:
+      - !Uri
+      - !Header Content-Type
+      - !PostBody
+
+Now if we restart the server all requests will crash. To fix the situation we should update our ``Request`` object::
+
+    class Request(web.Request):
+
+        def __init__(self, uri, content_type, body):
+            self.uri = uri
+            self.content_type = content_type
+            self.body = body
+
+Note, the order of arguments for request object is the same as the order of
+fields in zerogw config. Note also that for keyword arguments and
+``legacy_arguments`` to work with forms, the names of the properties on the
+requested object must be exactly as written above (there are actually 4
+reserved fields on request object, we'll learn fourth one later).
+
+We are ready to consume ``POST`` forms now. Let's remove the ``method="GET"``
+hack from ``login.html`` and ``register.html`` and check whether ``POST`` forms
+work.
+
+
 

@@ -1,4 +1,4 @@
-{% macro render_form(form, method='GET', submit_text="Submit") %}
+{% macro render_form(form, method='POST', submit_text="Submit") %}
 <form method="{{ method }}">
 <ul>
 {% for field in form %}

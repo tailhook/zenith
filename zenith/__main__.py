@@ -32,8 +32,10 @@ class About(web.Resource):
 
 class Request(web.Request):
 
-    def __init__(self, uri):
+    def __init__(self, uri, content_type, body):
         self.uri = uri
+        self.content_type = content_type
+        self.body = body
 
 
 def main():
