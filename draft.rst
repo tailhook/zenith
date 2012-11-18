@@ -120,7 +120,7 @@ Zerogw Configuration
 ====================
 
 To see anything in the browser, we need to configure zerogw, so lets start
-with ``zerogw.yaml``. First we configure zerogw to run on non-privileged port:
+with ``zerogw.yaml``. First we configure zerogw to run on non-privileged port::
 
     Server:
       listen:
@@ -197,7 +197,7 @@ The ``!zmq.`` prefixed tags (basically the unquoted words that are prefixed by
 exclamation mark are tags in YAML) are used to define zeromq socket kind. We
 use ``REQ`` socket to connect to ``REP`` socket at python side. And we
 ``bind`` zeromq socket at zerogw side to be able to start multiple processes
-that are ``connect``ed to the zerogw instance. And of course we use the same
+that are connected to the zerogw instance. And of course we use the same
 zeromq address that we specified in python.
 
 If you are not familiar with zeromq concepts, this may be time to do so. But
@@ -242,7 +242,7 @@ jinja templating. Let's start with base template ``templates/base.html``::
         <footer>Zenith (c) Your Name Here</footer>
     </body>
 
-And the start page of our project ``templates/index.html::
+And the start page of our project ``templates/index.html``::
 
     {% extends file="base.html"%}
     {% block title %}Welcome to Zenith!{% endblock %}
@@ -341,7 +341,7 @@ To make project real, we need an ``/about`` page. Add the following to
     import sys
 
     class About(web.Resource):
-    ...
+        # ...
         @web.page
         @template('about.html')
         def about(self):
@@ -449,7 +449,7 @@ It's a bit complex, so we'll try to explain most lines:
   apropriate chaining of the decorators
 
 Now we need to implement some rendering for the forms. We'll do this with a
-macro. Let's put the following into ``templates/form.html``:
+macro. Let's put the following into ``templates/form.html``::
 
     {% macro render_form(form, method='POST', submit_text="Submit") %}
     <form method="{{ method }}">
@@ -470,7 +470,7 @@ macro. Let's put the following into ``templates/form.html``:
     </form>
     {% endmacro %}
 
-That was easy. Let's design ``login.html``:
+That was easy. Let's design ``login.html``::
 
     {% extends "base.html"%}
     {% from "form.html" import render_form %}
@@ -486,7 +486,9 @@ Finally to tie all pieces together, let's put ``Auth`` resource into the list
 of resources the site is going to invoke (``zenith/__main__.py``). Example::
 
     from .auth import Auth
-    ...
+    # ...
+    def main():
+        # ...
         site = web.Site(
             request_class=Request,
             resources=[
