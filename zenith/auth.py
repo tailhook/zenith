@@ -1,10 +1,10 @@
+import jinja2
 import wtforms
-from wtforms import val
-from zorro.web import (Resource,
-    public_with_simpleform,
-    )
+from wtforms import validators as val
+from zorro import web
+from zorro.di import has_dependencies, dependency
 
-from util import template, TemplateMixin
+from .util import form, template
 
 
 class LoginForm(wtforms.Form):
@@ -14,7 +14,7 @@ class LoginForm(wtforms.Form):
         validators=[val.Required()])
 
 
-class Register(wtforms.Form):
+class RegisterForm(wtforms.Form):
     name = wtforms.TextField('Name',
         validators=[val.Required(), val.Length(min=3, max=24)])
     email = wtforms.TextField('E-mail',
@@ -25,14 +25,19 @@ class Register(wtforms.Form):
         validators=[val.Required()])
 
 
-class Auth(Resource, TemplateMixin):
+@has_dependencies
+class Auth(web.Resource):
+
+    jinja = dependency(jinja2.Environment, 'jinja')
 
     @template('login.html')
-    @public_with_simpleform(LoginForm)
+    @form(LoginForm)
+    @web.page
     def login(self, login, password):
-        raise TemporaryRedirect('/home', set_cookie={'':''})
+        raise web.CompletionRedirect('/loginok')
 
     @template('register.html')
-    @public_with_form(RegisterForm)
-    def register(self):
-        pass
+    @form(RegisterForm)
+    @web.page
+    def register(self, name, email, password, cpassword):
+        return web.CompletionRedirect('/registerok')

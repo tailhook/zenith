@@ -1,0 +1,10 @@
+{% macro render_form(form, method='GET', submit_text="Submit") %}
+<form method="{{ method }}">
+<ul>
+{% for field in form %}
+    <li>{{ field.label }} {{ field }}</li>
+{% endfor %}
+</ul>
+<input type="submit" value="{{ submit_text }}">
+</form>
+{% endmacro %}

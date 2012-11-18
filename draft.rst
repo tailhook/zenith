@@ -365,9 +365,124 @@ The ``templates/about.html`` might look like the following::
 After restarting python you can point your browser to
 ``http://localhost:8000/about`` and check the result.
 
-Now, you know how to add pages and pass variables into template. You are probably wondering when you'll start implementing a Game. Shortly, but before we should implement ...
+Now, you know how to add pages and pass variables into template. Now let's
+proceed to make forms which we need to implement authentication.
 
-Auth & Auth
-===========
 
+Forms
+=====
+
+We need a separate resource for ``/login`` and ``/register`` pages. So let's create ``zenith/auth.py``::
+
+    import jinja2
+    import wtforms
+    from wtforms import validators as val
+    from zorro.web import Resource
+    from zorro.di import has_dependencies, dependency
+
+    from .util import form, template
+
+
+    class LoginForm(wtforms.Form):
+        login = wtforms.TextField('Name or Email',
+            validators=[val.Required()])
+        password = wtforms.PasswordField('Password',
+            validators=[val.Required()])
+
+
+    class RegisterForm(wtforms.Form):
+        name = wtforms.TextField('Name',
+            validators=[val.Required(), val.Length(min=3, max=24)])
+        email = wtforms.TextField('E-mail',
+            validators=[val.Required(), val.Email()])
+        password = wtforms.PasswordField('Password',
+            validators=[val.Required()])
+        cpassword = wtforms.PasswordField('Confirm Password',
+            validators=[val.Required()])
+
+
+    @has_dependencies
+    class Auth(web.Resource):
+
+        jinja = dependency(jinja2.Environment, 'jinja')
+
+        @template('login.html')
+        @form(LoginForm)
+        @web.page
+        def login(self, login, password):
+            return web.CompletionRedirect('loginok')
+
+        @template('register.html')
+        @form(RegisterForm)
+        @web.page
+        def register(self, name, email, password, cpassword):
+            return web.CompletionRedirect('registerok')
+
+To make it basically work, we need to implement a ``form`` decorator::
+
+    def form(form_class):
+        def decorator(fun):
+            @web.decorator(fun)
+            def form_processor(self, resolver, meth, *args, **kw):
+                form = form_class(resolver.request.legacy_arguments)
+                if kw and form.validate():
+                    return meth(**form.data)
+                else:
+                    return dict(form=form)
+            return form_processor
+        return decorator
+
+It's a bit complex, so we'll try to explain most lines:
+
+* ``@web.decorator`` is mostly like ``functools.wraps`` except it doesn't
+  replace the actual function. It works by informing ``zorro.web`` framework
+  to call the decorator instead the specified method on request processing
+  (the ``web.preprocessor`` shown before does similar thing, except it called
+  after processing is finished). We'll show why this is useful shortly
+* ``legacy_arguments`` is an object with ``MultiDict`` interface which is
+  needed for ``wtforms``. We call it ``legacy`` because it creates more
+  problems than it solves (comparing to using just dict for arguments)
+* If the form is validated we pass the clean form values to the actual method,
+  otherwise we just return the form in the dict, so that ``template``
+  decorator will render page with specified form inside
+* The ``meth`` argument must be called instead of actual function to allow
+  apropriate chaining of the decorators
+
+Now we need to implement some rendering for the forms. We'll do this with a
+macro. Let's put the following into ``templates/form.html``:
+
+    {% macro render_form(form, method='GET', submit_text="Submit") %}
+    <form method="{{ method }}">
+    <ul>
+    {% for field in form %}
+        <li>{{ field.label }} {{ field }}</li>
+    {% endfor %}
+    </ul>
+    <input type="submit" value="{{ submit_text }}">
+    </form>
+    {% endmacro %}
+
+To see some result immediately we use ``GET`` method, of course it's wrong for
+the real work, but we'll fix it shortly. Let's design ``login.html``:
+
+    {% extends "base.html"%}
+    {% from "form.html" import render_form %}
+    {% block title %}Sign In{% endblock %}
+    {% block body %}
+    {{ render_form(form) }}
+    {% endblock body %}
+
+We give ``register.html`` as an exercise to the reader.
+
+And to tie all pieces together, let's put ``Auth`` resource into the list of
+resources the site is going to invoke (``zenith/__main__.py``). Example::
+
+    from .auth import Auth
+    ...
+        site = web.Site(
+            request_class=Request,
+            resources=[
+                inj.inject(About()),
+                inj.inject(Auth()),
+            ])
 

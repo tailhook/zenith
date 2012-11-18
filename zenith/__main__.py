@@ -8,6 +8,7 @@ from zorro import web
 from zorro.di import DependencyInjector, has_dependencies, dependency
 
 from .util import template
+from .auth import Auth
 
 
 @has_dependencies
@@ -45,6 +46,7 @@ def main():
         request_class=Request,
         resources=[
             inj.inject(About()),
+            inj.inject(Auth()),
         ])
     sock = zmq.rep_socket(site)
     sock.dict_configure({'connect': 'ipc://./run/http.sock'})
