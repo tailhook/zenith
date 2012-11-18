@@ -455,7 +455,15 @@ macro. Let's put the following into ``templates/form.html``:
     <form method="{{ method }}">
     <ul>
     {% for field in form %}
-        <li>{{ field.label }} {{ field }}</li>
+        <li>{{ field.label }} {{ field }}
+            {% if field.errors %}
+                <ul>
+                    {% for er in field.errors %}
+                        <li>{{ er }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+            </li>
     {% endfor %}
     </ul>
     <input type="submit" value="{{ submit_text }}">
