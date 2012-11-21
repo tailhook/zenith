@@ -33,8 +33,9 @@ class About(web.Resource):
 
 class Request(web.Request):
 
-    def __init__(self, uri, content_type, body):
+    def __init__(self, uri, cookie, content_type, body):
         self.uri = uri
+        self.cookie = cookie
         self.content_type = content_type
         self.body = body
 

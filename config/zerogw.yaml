@@ -14,6 +14,7 @@ Routing:
         - !zmq.Bind ipc://./run/http.sock
         contents:
         - !Uri
+        - !Header Cookie
         - !Header Content-Type
         - !Body
     /js/*: &static

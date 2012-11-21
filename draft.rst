@@ -722,3 +722,192 @@ Remember, you'll still get 404 on successful login/registration, but by
 redirect to ``/loginok`` or ``/registerok`` you can understand that everything
 works well.
 
+
+Sessions
+========
+
+Let's create a session-protected page first. Create file ``zenith/home.py``::
+
+
+    from zorro import web
+
+
+    class Home(web.Resource):
+
+        def __init__(self, user):
+            self.user = user
+
+        @web.page
+        def index(self):
+            return 'Hello, {}'.format(self.user.name)
+
+Note, we assume that instance of Home resource is created on per-user basis.
+Here is how we do it in ``zenith/auth.py``::
+
+    class Auth(web.Resource):
+        # ...
+
+        @web.resource
+        def home(self, user: User):
+            return Home(user)
+
+We have used ``web.resource`` decorator, which is similar to ``web.page``
+except it denotes method that returns a resource where url dispatching
+continues (in user words resource can have a subpages).
+
+The ``User`` class is used in annotation is a subclass of a ``web.Sticker``
+class. When zorro encounters such a class in annotation it tries to
+instantiate an object using ``create`` class method, and pass it as an
+argument. In simpler form, you declare that you want an :class:`User` instance
+and you get it.
+
+Before showing the code for ``User`` class we should agree that we store uid of the logged in user at the ``z:session:<sid>``, where ``<sid>`` is a randomly generated session identifier . And serialized (using JSON) user data we store at the ``z:user:<uid>``.
+
+This is how ``User`` class looks like::
+
+    import json
+
+    from zorro import web
+    from zorro.redis import Redis
+    from zorro.di import di, has_dependencies, dependency
+
+    @has_dependencies
+    class User(web.Sticker):
+
+        redis = dependency(Redis, 'redis')
+
+        def __init__(self, uid):
+            self.uid = uid
+            self.level = 1
+            self.name = None
+            self.email = None
+
+        @classmethod
+        def create(cls, resolver):
+            req = resolver.request
+            if 'sid' not in req.cookies:
+                raise web.CompletionRedirect('/login')
+            inj = di(resolver.resource)
+            redis = inj['redis']
+            uid = redis.execute("GET", 'z:session:' + req.cookies['sid'])
+            if uid is None:
+                raise web.CompletionRedirect('/login')
+            uid = int(uid)
+            user = inj.inject(User(uid))
+            user.load()
+            return user
+
+        def load(self):
+            data = self.redis.execute("GET", 'z:user:{}'.format(self.uid))
+            if data:
+                properties = json.loads(data.decode('utf-8'))
+                for k, v in properties.items():
+                    setattr(self, k, v)
+
+        def save(self):
+            self.redis.execute("SET", 'z:user:{:d}'.format(self.uid),
+                json.dumps({
+                    'level': self.level,
+                    'name': self.name,
+                    'email': self.email,
+                    }).encode('utf-8'))
+
+The ``resolver`` is the same object we used in decorators. The ``resolver.resource`` is current ``Resource`` instance (``Home`` in this case). As the class can probably used in different places, we don't use dependency injection into class itself, but rather use dependency injector from the current resource (e.g. we can run several instances of the application with different redis connections in the same process). Note we use square brackets to directly get dependency from the DI instance, this technique is useful ocasionally.
+
+To make ``request.cookies`` work we need to add ``Cookie`` header to zerogw
+config:
+
+.. code-block:: yaml
+   :emphasize-lines: 7
+
+    zmq-forward:
+      enabled: yes
+      socket: !zmq.Req
+      - !zmq.Bind ipc://./run/http.sock
+      contents:
+      - !Uri
+      - !Header Cookie
+      - !Header Content-Type
+      - !PostBody
+
+And to ``Request`` class:
+
+.. code-block:: yaml
+   :emphasize-lines: 3,5
+
+    class Request(web.Request):
+
+        def __init__(self, uri, cookie, content_type, body):
+            self.uri = uri
+            self.cookie = cookie
+            self.content_type = content_type
+            self.body = body
+
+Note, for some aesthetic prefereces we put ``Cookie`` header to the second
+field, the order doesn't actually matter, except it needs to match in zerogw
+config and in request arguments. Yes, the ``request.cookie`` field is the
+fourth field in request object which has fixed name, you put ``cookie`` field
+as a bytes or bytearray object to request and then can read ``cookies`` (note
+the ``s``) dictionary with the real cookie values.
+
+Now is the time to make ``/login`` and ``/register`` pages do some more work:
+
+.. code-block:: python
+    :emphasize-lines: 9-16,35-40
+
+    import uuid
+
+    # ...
+
+    @template('login.html')
+    @form(LoginForm)
+    @web.page
+    def login(self, login, password):
+        uid = self.redis.execute('HGET', 'z:names', login)
+        sid = str(uuid.uuid4())
+        self.redis.execute("SET", 'z:session:' + sid, uid)
+        cook = SimpleCookie()
+        cook['sid'] = sid
+        cook['sid']['max-age'] = 2*86400  # 2 days
+        cook['sid']['path'] = '/'
+        raise web.CompletionRedirect('/home', cookie=cook)
+
+    @template('register.html')
+    @form(RegisterForm)
+    @web.page
+    def register(self, name, email, password, cpassword):
+        uid = self.redis.execute("INCR", 'z:last_uid')
+        ok = self.redis.execute("HSETNX", 'z:names', name, uid)
+        if not ok:
+            raise FormError("name", "Login exists")
+        ok = self.redis.execute("HSETNX", 'z:names', email, uid)
+        if not ok:
+            self.redis.execute("HDEL", 'z:names', name)
+            raise FormError("email", "This email is already registered")
+        salt = os.urandom(32)
+        hash = hashlib.sha256(password.encode('utf-8') + salt).digest()
+        pw = b'A' + hash + salt
+        self.redis.execute('SET', 'z:user:{}:password'.format(uid), pw)
+
+        user = di(self).inject(User(uid))
+        user.name = name
+        user.email = email
+        user.save()
+
+        return self.login(name, password)
+
+In ``login`` we need to generate a new session id, we use :mod:`uuid` module
+for that. The function is quite simple, just note that ``CompletionRedirect``
+has also a ``cookie`` argument to simplify your life.
+
+In ``register`` we just create and save a ``User`` so we have not only
+password set, but also the user object at ``z:user:<uid>``, then we call
+``self.login`` to create a session.
+
+Note as noted above, when calling ``self.login`` directly, neither form nor
+any other web-style decorators will be called. This allows easier reusing
+views as well as making short concise unit tests for them.
+
+If you have done everything right, and put right imports on right places (we
+omit some for brewity), you should be able to register login and see ``Hello,
+username`` page at ``http://localhost:8000/home``.

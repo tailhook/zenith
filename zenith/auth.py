@@ -1,13 +1,17 @@
+import hashlib
+import uuid
+import os
+from http.cookies import SimpleCookie
+
 import jinja2
 import wtforms
-import hashlib
-import os
 from wtforms import validators as val
 from zorro import web
-from zorro.di import has_dependencies, dependency
+from zorro.di import di, has_dependencies, dependency
 from zorro.redis import Redis
 
 from .util import form, template
+from .home import Home, User
 
 
 @has_dependencies
@@ -69,7 +73,14 @@ class Auth(web.Resource):
     @form(LoginForm)
     @web.page
     def login(self, login, password):
-        raise web.CompletionRedirect('/loginok')
+        uid = self.redis.execute('HGET', 'z:names', login)
+        sid = str(uuid.uuid4())
+        self.redis.execute("SET", 'z:session:' + sid, uid)
+        cook = SimpleCookie()
+        cook['sid'] = sid
+        cook['sid']['max-age'] = 2*86400  # 2 days
+        cook['sid']['path'] = '/'
+        raise web.CompletionRedirect('/home', cookie=cook)
 
     @template('register.html')
     @form(RegisterForm)
@@ -87,4 +98,14 @@ class Auth(web.Resource):
         hash = hashlib.sha256(password.encode('utf-8') + salt).digest()
         pw = b'A' + hash + salt
         self.redis.execute('SET', 'z:user:{}:password'.format(uid), pw)
-        raise web.CompletionRedirect('/registerok')
+
+        user = di(self).inject(User(uid))
+        user.name = name
+        user.email = email
+        user.save()
+
+        return self.login(name, password)
+
+    @web.resource
+    def home(self, user:User):
+        return Home(user)
