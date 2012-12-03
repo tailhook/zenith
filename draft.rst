@@ -12,13 +12,14 @@ technologies (in no meaningful order):
 * wtforms
 * zeromq
 * zerogw
-* JSON
 * HTML5
 
 We expect that reader is familiar with Python and HTML5. We concentrate on
 zorro and zerogw as the least known tools from the above. Everything else is
 touched only superficially, but in a way that's easy to grasp if you don't
 used them before.
+
+We concentrate on the server side. It's hard to include all pieces of software inside a single tutorial, so client (javascript, HTML) code does work, but lacks some robustness, cross-browser compatibility and eye-candy.
 
 
 Quick Start
@@ -911,3 +912,230 @@ views as well as making short concise unit tests for them.
 If you have done everything right, and put right imports on right places (we
 omit some for brewity), you should be able to register login and see ``Hello,
 username`` page at ``http://localhost:8000/home``.
+
+
+Pager-like Messaging
+====================
+
+Before making real game, we want to give a sense of how websockets work.
+
+Let's turn our ``/home`` page into a template::
+
+
+    {% extends "base.html"%}
+    {% block body %}
+    <ul>
+        <li>Name: {{ user.name }} </li>
+        <li>Level: {{ user.level }} </li>
+    </ul>
+
+    <div id="connection"></div>
+
+    <div id="pager"></div>
+    <button id="pager_send">Send Message</button>
+
+    <script src="/js/game.js"></script>
+    {% endblock body %}
+
+(We assume that you remember how to turn a method that returns string into a
+template) Now after logging you can see your name and current level. We also
+put some javascript on the page, here is how it looks like::
+
+    (function(window) {
+
+        var pager = document.getElementById('pager');
+        var status_div = document.getElementById('connection');
+
+
+        status_div.textContent = 'connecting...'
+        var conn = new WebSocket('ws://localhost:8000/ws');
+        var handlers = {};
+        conn.onopen = function() {
+            status_div.textContent = 'connected';
+        }
+        conn.onmessage = function(ev) {
+            var json = JSON.parse(ev.data)
+            var cmd = handlers[json.shift()];
+            if(cmd) {
+                cmd.apply(this, json);
+            }
+        }
+        function send_message() {
+            var data = Array.prototype.slice.call(arguments)
+            conn.send(JSON.stringify(data));
+        }
+
+
+        var pager_btn = document.getElementById('pager_send')
+        pager_btn.addEventListener('click', function() {
+            var msg = prompt('Enter a message');
+            if(msg) {
+                send_message('pager.send', {}, msg);
+            }
+        });
+        handlers['pager.message'] = function(msg) {
+            pager.textContent = msg;
+        }
+
+    })(this);
+
+Here we have a ``handlers`` dictionary, which has a function per incoming
+message type. We put both incoming and outgoing messages into ``pager.``
+namespace in order to make extending the application easier.
+
+The empty object in ``send_message`` call is there for request ID (see below)
+and keyword arguments. We do not expect response so far so there are no
+request ID, and we will not use keyword arguments through this tutorial, but
+they are tremendously useful for more complex applications.
+
+Everything else should be clear. You can easily refresh your memory by
+googling if you have any troubles understading code.
+
+That's all that we need to handle websockets at client side. Let's add
+server-side support. We need to enable websockets in zerogw:
+
+.. code-block:: yaml
+   :empasize-lines: 15, 21
+
+    Routing:
+      routing: !Prefix
+      routing-by: !Path
+      map:
+        /*:
+          zmq-forward:
+            enabled: yes
+            socket: !zmq.Req
+            - !zmq.Bind ipc://./run/http.sock
+            contents:
+            - !Uri
+            - !Header Cookie
+            - !Header Content-Type
+            - !Body
+        /ws:
+          websocket:
+            enabled: yes
+            forward: !zmq.Push
+            - !zmq.Bind ipc://./run/fw.sock
+            subscribe: !zmq.Sub
+            - !zmq.Bind ipc://./run/sub.sock
+        /js/*: &static
+          static:
+            enabled: yes
+            root: ./public
+            restrict-root: no
+        /css/*: *static
+
+We declared two sockets ``fw.sock`` by which zeromq will "forward" messages to
+backend (we will receive messages with python from there), and ``sub.sock``
+which listens for backend commands, and forwards messages to the client if
+specified.
+
+Some theory follows. If you are impatient, you can now run the app and see how
+``#connection`` div changes it's text to ``connecting...`` then
+``connected``. It means websockets work, but we still don't have anything
+useful from them.
+
+
+Quick Intro Into Messaging
+--------------------------
+
+The zerogw is built for games in the first place. To make games quick with
+python we must offload some work to highly optimized C code. In this case we
+have a ``pager.message`` message which must be sent to every user, even if
+there are million online users. It would be very inefficient to do that in
+python. So zerogw has notion of *topic*. A topic is a (binary) string, which you can subscribe the client for. The if message is published for that topic, every client that was subscribed for the topic receives messages. So even if there are millions of clients, you have to send only single message from python.
+
+.. note:: Zeromq magic makes the last sentence true even when you have
+   multiple zerogw instances even on several servers. In fact, having several
+   zerogw boxes means multiple messages are sent through the network, but
+   still only one zmq call from python, everything else is going on by fast
+   multi-threaded C/C++ code in zeromq and zerogw.
+
+.. note:: In Mongrel2 they have another approach for sending a message to lots
+   of clients: the backend have to send a list of UUIDs for clients which will
+   receive the message. For small messages like in our page example, we have
+   very short pieces of data (``['pager.message', 'Hello, World!']`` only
+   takes 34 characters, UUID takes 36) we do not have any savings. For big
+   messages and bigger number of users Mongrel2 is not very good either, as it
+   allows only 128 UUIDs per message, if yo need more you need to repeat whole
+   message.
+
+It may seem strange and complex at the first. But when you'll get used to it,
+it would be the only obvious way to do things :)
+
+
+So first thing we need is subscribe every new connection for pager messages.
+Let's create ``zenith/websock.py`` and handle connections::
+
+    from zorro import web
+
+    class Websockets(web.Websockets):
+
+        def handle_connect(self, call):
+            self.output.subscribe(call, b'pager')
+
+The ``pager`` is our topic. ``call`` is an object encapsulating this websocket call, in or case it has ``cid`` attribute which is connection id, and ``subscribe`` as well as many other commands support any object having ``cid`` to identify connection. The ``output`` attribute is set in constructor, we'll show the code shortly.
+
+We also need the ``pager.send`` call so the clients are able to actually send
+the message. The websocket calls are structured using resource tree similarly,
+to how http resources are structured. Let's put pager resource into
+``zenith/websock.py``::
+
+    from zorro.di import has_dependencies, dependency
+
+    @has_dependencies
+    class Pager(web.Resource):
+
+        output = dependency(zerogw.JSONWebsockOutput, "output")
+
+        @web.method
+        def send(self, text):
+            self.output.publish('pager', ['pager.message', text])
+
+
+Here we get ``output`` as a dependency. The first argument to ``publish`` is
+the name of the topic to publish to. Every connection that has subscribed to
+the ``pager`` topic will get this message, in our case it's every connection
+which has a processed an ``connect`` event (events are processed
+asynchonously,so there is potentially a tiny delay after getting ``onopen``
+but before ``connect`` message received, in practice unless your backend
+processes are overloaded, ``connect`` message is send by fast in-datacenter
+link and websocket handshake has long and slow path, so ``connect`` triggers
+first).
+
+The only piece of code left, the one to tie everything together
+(``zenith/__main__.py``)::
+
+    from zorro import zerogw
+    from .websock import Websockets, Pager
+
+    def main():
+        # ...
+        sock = zmq.pub_socket()
+        sock.dict_configure({'connect': 'ipc://./run/sub.sock'})
+        output = zerogw.JSONWebsockOutput(sock)
+        inj['output'] = output
+
+        sock = zmq.pull_socket(inj.inject(Websockets(
+            resources=[web.DictResource({
+                'pager': inj.inject(Pager()),
+                })],
+            output=output,
+            )))
+        sock.dict_configure({'connect': 'ipc://./run/fw.sock'})
+
+We need the output channel create before we can plug websockets in. We use the
+``DictResource`` as our root resource, because we don't need anything special
+in the root resource, just a namespace for all our child websocket resources.
+YOu can use ``DictResource`` for HTTP handlers as well. In other aspects, the
+configuration is similar to what we have done for ``web.Site``. Note also what
+sockets do you connect with which "ports" in zerogw, messing them up is the
+most common problem.
+
+Ok. If you've done everything well, you should be able to login and post pager
+message. Other users should immediately see the new message reflected on their
+screens. Note, after page refresh and before anybody sends the message, pager
+will be empty. The ability to restore pager message on refresh is left as an
+exercise for the reader.
+
+

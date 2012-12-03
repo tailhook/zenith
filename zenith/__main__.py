@@ -5,11 +5,13 @@ import zorro
 from zorro import Hub
 from zorro import zmq
 from zorro import web
+from zorro import zerogw
 from zorro.di import DependencyInjector, has_dependencies, dependency
 from zorro import redis
 
 from .util import template
 from .auth import Auth
+from .websock import Websockets, Pager
 
 
 @has_dependencies
@@ -55,6 +57,19 @@ def main():
         ])
     sock = zmq.rep_socket(site)
     sock.dict_configure({'connect': 'ipc://./run/http.sock'})
+
+    sock = zmq.pub_socket()
+    sock.dict_configure({'connect': 'ipc://./run/sub.sock'})
+    output = zerogw.JSONWebsockOutput(sock)
+    inj['output'] = output
+
+    sock = zmq.pull_socket(inj.inject(Websockets(
+        resources=[web.DictResource({
+            'pager': inj.inject(Pager()),
+            })],
+        output=output,
+        )))
+    sock.dict_configure({'connect': 'ipc://./run/fw.sock'})
 
 
 if __name__ == '__main__':

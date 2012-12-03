@@ -108,4 +108,4 @@ class Auth(web.Resource):
 
     @web.resource
     def home(self, user:User):
-        return Home(user)
+        return di(self).inject(Home(user))

@@ -17,6 +17,13 @@ Routing:
         - !Header Cookie
         - !Header Content-Type
         - !Body
+    /ws:
+      websocket:
+        enabled: yes
+        forward: !zmq.Push
+        - !zmq.Bind ipc://./run/fw.sock
+        subscribe: !zmq.Sub
+        - !zmq.Bind ipc://./run/sub.sock
     /js/*: &static
       static:
         enabled: yes

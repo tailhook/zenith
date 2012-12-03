@@ -1,0 +1,15 @@
+{% extends "base.html"%}
+{% block title %}Welcome to Zenith!{% endblock %}
+{% block body %}
+<ul>
+    <li>Name: {{ user.name }} </li>
+    <li>Level: {{ user.level }} </li>
+</ul>
+
+<div id="connection"></div>
+
+<div id="pager"></div>
+<button id="pager_send">Send Message</button>
+
+<script src="/js/game.js"></script>
+{% endblock body %}

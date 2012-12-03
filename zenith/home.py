@@ -1,22 +1,31 @@
 import json
 import logging
+import jinja2
 
 from zorro import web
 from zorro.redis import Redis
 from zorro.di import di, has_dependencies, dependency
 
+from .util import template
+
 
 log = logging.getLogger(__name__)
 
 
+@has_dependencies
 class Home(web.Resource):
+
+    jinja = dependency(jinja2.Environment, 'jinja')
 
     def __init__(self, user):
         self.user = user
 
     @web.page
+    @template('home.html')
     def index(self):
-        return 'Hello, {}'.format(self.user.name)
+        return {
+            'user': self.user,
+            }
 
 
 @has_dependencies
