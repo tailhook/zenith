@@ -42,14 +42,22 @@ class User(web.Sticker):
     @classmethod
     def create(cls, resolver):
         req = resolver.request
-        if 'sid' not in req.cookies:
-            raise web.CompletionRedirect('/login')
         inj = di(resolver.resource)
-        redis = inj['redis']
-        uid = redis.execute("GET", 'z:session:' + req.cookies['sid'])
-        if uid is None:
-            raise web.CompletionRedirect('/login')
-        uid = int(uid)
+        if isinstance(req, web.Request):
+            if 'sid' not in req.cookies:
+                raise web.CompletionRedirect('/login')
+            redis = inj['redis']
+            uid = redis.execute("GET", 'z:session:' + req.cookies['sid'])
+            if uid is None:
+                raise web.CompletionRedirect('/login')
+            uid = int(uid)
+        elif isinstance(req, web.WebsockCall):
+            marker = getattr(req, 'marker', None)
+            if not marker or not marker.startswith(b'user:'):
+                raise web.Forbidden()
+            uid = int(marker[len('user:'):])
+        else:
+            raise AssertionError("Wrong request type {!r}".format(req))
         user = inj.inject(User(uid))
         user.load()
         return user

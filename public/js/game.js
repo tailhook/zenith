@@ -9,6 +9,7 @@
     var handlers = {};
     conn.onopen = function() {
         status_div.textContent = 'connected';
+        send_message('auth.hello', {}, extract_cookie('sid'));
     }
     conn.onmessage = function(ev) {
         var json = JSON.parse(ev.data)
@@ -30,8 +31,18 @@
             send_message('pager.send', {}, msg);
         }
     });
-    handlers['pager.message'] = function(msg) {
-        pager.textContent = msg;
+    handlers['pager.message'] = function(username, msg) {
+        pager.textContent = username + ': ' + msg;
+    }
+
+    function extract_cookie(name) {
+        var lst = document.cookie.split(';');
+        for(var i = 0, ni = lst.length; i < ni; ++i) {
+            var pair = lst[i].split('=', 2);
+            if(pair[0] == name)
+                return pair[1];
+        }
+        return null;
     }
 
 })(this);

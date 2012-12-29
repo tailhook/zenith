@@ -11,7 +11,7 @@ from zorro import redis
 
 from .util import template
 from .auth import Auth
-from .websock import Websockets, Pager
+from .websock import Websockets, Pager, WebsockAuth
 
 
 @has_dependencies
@@ -66,6 +66,7 @@ def main():
     sock = zmq.pull_socket(inj.inject(Websockets(
         resources=[web.DictResource({
             'pager': inj.inject(Pager()),
+            'auth': inj.inject(WebsockAuth()),
             })],
         output=output,
         )))

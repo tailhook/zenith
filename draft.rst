@@ -1139,3 +1139,129 @@ will be empty. The ability to restore pager message on refresh is left as an
 exercise for the reader.
 
 
+Message Authorization
+=====================
+
+Being able to write any message anonymously is probably a bad idea for any
+decent game. Let's authorize messages and include a user name along with them.
+
+Zerogw has a method to mark a connection with a string which may then be used
+to authorize each message that comes from a connection. Zerogw calls this
+thing a cookie. This cookie is analogy to HTTP cookies, but has absolutely
+nothing to do with them, so zorro calls it ``marker``. Let's see how to mark a
+connection::
+
+    @has_dependencies
+    class WebsockAuth(web.Resource):
+
+        redis = dependency(Redis, "redis")
+        output = dependency(zerogw.JSONWebsockOutput, "output")
+
+        @web.method
+        def hello(self, call: web.WebsockCall, sid: str):
+            uid = self.redis.execute("GET", 'z:session:' + sid)
+            if uid:
+                uid = int(uid)
+                self.output.set_cookie(call.cid, 'user:{}'.format(uid))
+                user = User(uid)
+                di(self).inject(user)
+                user.load()
+                return {'uid': uid, 'name': user.name}
+
+We created as separate resource for authentication, and put ``hello`` method
+there. To know the connection where request resides, we declare that we need a
+``web.WebsockCall`` object which has a ``cid`` attribute which is connection
+id, it works just like ``User`` object defined earlier. Client sends a session
+id to the method, we check it and mark a connection as being owned by user
+with some id by setting marker ``user:1234``.
+
+Note how we also use annotation on ``sid`` argument, to make sure it's string.
+Websocket data is sent as JSON. Client can send list or dict or something else
+instead of string and we should react gracefully. It would crash recently in
+this case, but in practice there can be subtle bugs leading to security
+vulnerabilities if types are not checked, so it's good practice to check type
+for the arguments always. Zorro makes it easy by using type anotations.
+
+Let's register our resource as ``auth`` resource::
+
+.. code-block:: python
+   :empasize-lines: 4
+
+     sock = zmq.pull_socket(inj.inject(Websockets(
+         resources=[web.DictResource({
+             'pager': inj.inject(Pager()),
+             'auth': inj.inject(WebsockAuth()),
+             })],
+         output=output,
+         )))
+
+On client-side we send ``auth.hello`` message in ``onopen``::
+
+.. code-block:: javascript
+   :empasize-lines: 3, 5-13
+
+     conn.onopen = function() {
+         status_div.textContent = 'connected';
+         send_message('auth.hello', {}, extract_cookie('sid'));
+     }
+     function extract_cookie(name) {
+         var lst = document.cookie.split(';');
+         for(var i = 0, ni = lst.length; i < ni; ++i) {
+             var pair = lst[i].split('=', 2);
+             if(pair[0] == name)
+                 return pair[1];
+         }
+         return null;
+     }
+
+Now after initial ``auth.hello`` handshake we have a marker inside each
+subsequent websocket message. To make use of it we need to adapt a ``User``
+class to work with websockets too. Let's rewrite it's ``create`` method::
+
+
+.. code-block:: python
+   :empasize-lines: 5, 14-19
+
+     @classmethod
+     def create(cls, resolver):
+         req = resolver.request
+         inj = di(resolver.resource)
+         if isinstance(req, web.Request):
+             if 'sid' not in req.cookies:
+                 raise web.CompletionRedirect('/login')
+             redis = inj['redis']
+             uid = redis.execute("GET", 'z:session:' + req.cookies['sid'])
+             if uid is None:
+                 raise web.CompletionRedirect('/login')
+             uid = int(uid)
+         elif isinstance(req, web.WebsockCall):
+             marker = getattr(req, 'marker', None)
+             if not marker or not marker.startswith(b'user:'):
+                 raise web.Forbidden()
+             uid = int(marker[len('user:'):])
+         else:
+             raise AssertionError("Wrong request type {!r}".format(req))
+         user = inj.inject(User(uid))
+         user.load()
+         return user
+
+Zorro uses the same kind of objects and same method ``create`` to create
+objects both for http usage and for websockets. As you can see it's useful, we
+use few lines in common. You can find out what kind of request we have now by
+checking type of the request. Note that websocket code is much simpler by
+using markers on the connection. Let's update our ``pager.send`` method to
+make use of it::
+
+     def send(self, user: User, text: str):
+         self.output.publish('pager', ['pager.message', user.name, text])
+
+And let's fix client to accept two arguments::
+
+    handlers['pager.message'] = function(username, msg) {
+        pager.textContent = username + ': ' + msg;
+    }
+
+Now if somebody send a pager message, we know who done that. This is easy,
+fast and secure way to authorize websocket commands. Now we are ready to do
+even more complex tasks with websockets.
+
