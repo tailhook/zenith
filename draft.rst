@@ -121,7 +121,9 @@ Zerogw Configuration
 ====================
 
 To see anything in the browser, we need to configure zerogw, so lets start
-with ``zerogw.yaml``. First we configure zerogw to run on non-privileged port::
+with ``zerogw.yaml``. First we configure zerogw to run on non-privileged port:
+
+.. code-block:: yaml
 
     Server:
       listen:
@@ -139,7 +141,9 @@ is a list of addresses to listen. Listen address has self-descriptive ``host``
 and ``port`` properties.
 
 Now we've got to the point, where we should define how URL's are served.
-Append the following into ``zerogw.yaml``::
+Append the following into ``zerogw.yaml``:
+
+.. code-block:: yaml
 
     Routing:
       routing: !Prefix
@@ -230,7 +234,9 @@ Jinja Templates
 ===============
 
 We aren't going to write all the HTML in the python code. So let's do some
-jinja templating. Let's start with base template ``templates/base.html``::
+jinja templating. Let's start with base template ``templates/base.html``:
+
+.. code-block:: jinja
 
     <!DOCTYPE html>
     <head>
@@ -243,7 +249,9 @@ jinja templating. Let's start with base template ``templates/base.html``::
         <footer>Zenith (c) Your Name Here</footer>
     </body>
 
-And the start page of our project ``templates/index.html``::
+And the start page of our project ``templates/index.html``:
+
+.. code-block:: jinja
 
     {% extends file="base.html"%}
     {% block title %}Welcome to Zenith!{% endblock %}
@@ -351,7 +359,9 @@ To make project real, we need an ``/about`` page. Add the following to
                 'zorro_version': zorro.__version__,
                 }
 
-The ``templates/about.html`` might look like the following::
+The ``templates/about.html`` might look like the following:
+
+.. code-block:: jinja
 
     {% extends "base.html"%}
     {% block title %}Zenith Tutorial!{% endblock %}
@@ -450,7 +460,9 @@ It's a bit complex, so we'll try to explain most lines:
   apropriate chaining of the decorators
 
 Now we need to implement some rendering for the forms. We'll do this with a
-macro. Let's put the following into ``templates/form.html``::
+macro. Let's put the following into ``templates/form.html``:
+
+.. code-block:: jinja
 
     {% macro render_form(form, method='POST', submit_text="Submit") %}
     <form method="{{ method }}">
@@ -471,7 +483,9 @@ macro. Let's put the following into ``templates/form.html``::
     </form>
     {% endmacro %}
 
-That was easy. Let's design ``login.html``::
+That was easy. Let's design ``login.html``:
+
+.. code-block:: jinja
 
     {% extends "base.html"%}
     {% from "form.html" import render_form %}
@@ -743,7 +757,9 @@ Let's create a session-protected page first. Create file ``zenith/home.py``::
             return 'Hello, {}'.format(self.user.name)
 
 Note, we assume that instance of Home resource is created on per-user basis.
-Here is how we do it in ``zenith/auth.py``::
+Here is how we do it in ``zenith/auth.py``:
+
+.. code-block:: python
 
     class Auth(web.Resource):
         # ...
@@ -833,7 +849,7 @@ config:
 
 And to ``Request`` class:
 
-.. code-block:: yaml
+.. code-block:: python
    :emphasize-lines: 3,5
 
     class Request(web.Request):
@@ -919,8 +935,9 @@ Pager-like Messaging
 
 Before making real game, we want to give a sense of how websockets work.
 
-Let's turn our ``/home`` page into a template::
+Let's turn our ``/home`` page into a template:
 
+.. code-block:: jinja
 
     {% extends "base.html"%}
     {% block body %}
@@ -939,7 +956,9 @@ Let's turn our ``/home`` page into a template::
 
 (We assume that you remember how to turn a method that returns string into a
 template) Now after logging you can see your name and current level. We also
-put some javascript on the page, here is how it looks like::
+put some javascript on the page, here is how it looks like:
+
+.. code-block:: javascript
 
     (function(window) {
 
@@ -995,7 +1014,7 @@ That's all that we need to handle websockets at client side. Let's add
 server-side support. We need to enable websockets in zerogw:
 
 .. code-block:: yaml
-   :empasize-lines: 15, 21
+   :emphasize-lines: 15, 21
 
     Routing:
       routing: !Prefix
@@ -1149,7 +1168,9 @@ Zerogw has a method to mark a connection with a string which may then be used
 to authorize each message that comes from a connection. Zerogw calls this
 thing a cookie. This cookie is analogy to HTTP cookies, but has absolutely
 nothing to do with them, so zorro calls it ``marker``. Let's see how to mark a
-connection::
+connection:
+
+.. code-block:: python
 
     @has_dependencies
     class WebsockAuth(web.Resource):
@@ -1182,10 +1203,10 @@ this case, but in practice there can be subtle bugs leading to security
 vulnerabilities if types are not checked, so it's good practice to check type
 for the arguments always. Zorro makes it easy by using type anotations.
 
-Let's register our resource as ``auth`` resource::
+Let's register our resource as ``auth`` resource:
 
 .. code-block:: python
-   :empasize-lines: 4
+   :emphasize-lines: 4
 
      sock = zmq.pull_socket(inj.inject(Websockets(
          resources=[web.DictResource({
@@ -1195,10 +1216,10 @@ Let's register our resource as ``auth`` resource::
          output=output,
          )))
 
-On client-side we send ``auth.hello`` message in ``onopen``::
+On client-side we send ``auth.hello`` message in ``onopen``:
 
 .. code-block:: javascript
-   :empasize-lines: 3, 5-13
+   :emphasize-lines: 3, 5-13
 
      conn.onopen = function() {
          status_div.textContent = 'connected';
@@ -1216,11 +1237,11 @@ On client-side we send ``auth.hello`` message in ``onopen``::
 
 Now after initial ``auth.hello`` handshake we have a marker inside each
 subsequent websocket message. To make use of it we need to adapt a ``User``
-class to work with websockets too. Let's rewrite it's ``create`` method::
+class to work with websockets too. Let's rewrite it's ``create`` method:
 
 
 .. code-block:: python
-   :empasize-lines: 5, 14-19
+   :emphasize-lines: 5, 14-19
 
      @classmethod
      def create(cls, resolver):
@@ -1250,12 +1271,16 @@ objects both for http usage and for websockets. As you can see it's useful, we
 use few lines in common. You can find out what kind of request we have now by
 checking type of the request. Note that websocket code is much simpler by
 using markers on the connection. Let's update our ``pager.send`` method to
-make use of it::
+make use of it:
+
+.. code-block:: python
 
      def send(self, user: User, text: str):
          self.output.publish('pager', ['pager.message', user.name, text])
 
-And let's fix client to accept two arguments::
+And let's fix client to accept two arguments:
+
+.. code-block:: python
 
     handlers['pager.message'] = function(username, msg) {
         pager.textContent = username + ': ' + msg;
